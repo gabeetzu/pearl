@@ -147,10 +147,9 @@ func NewUnsignedTransaction(outputs []*wire.TxOut, feeRatePerKb btcutil.Amount,
 		remainingAmount := inputAmount - targetAmount
 		if remainingAmount < maxRequiredFee {
 			if remainingAmount >= feeNoChange {
-				// The inputs can fund the transaction without a
-				// change output; require only that fee and let the
-				// change amount below be dropped as dust or zero.
-				maxRequiredFee = feeNoChange
+				// Pay the whole remainder as fee so no underfunded
+				// change output is created.
+				maxRequiredFee = remainingAmount
 			} else {
 				targetFee = maxRequiredFee
 				continue
@@ -166,17 +165,18 @@ func NewUnsignedTransaction(outputs []*wire.TxOut, feeRatePerKb btcutil.Amount,
 
 		changeIndex := -1
 		changeAmount := inputAmount - targetAmount - maxRequiredFee
-		changeScript, err := changeSource.NewScript()
-		if err != nil {
-			return nil, err
-		}
-		change := wire.NewTxOut(int64(changeAmount), changeScript)
-		if changeAmount != 0 && !txrules.IsDustOutput(change,
-			txrules.DefaultRelayFeePerKb) {
-
-			l := len(outputs)
-			unsignedTransaction.TxOut = append(outputs[:l:l], change)
-			changeIndex = l
+		if changeAmount > 0 {
+			changeScript, err := changeSource.NewScript()
+			if err != nil {
+				return nil, err
+			}
+			change := wire.NewTxOut(int64(changeAmount), changeScript)
+			if !txrules.IsDustOutput(change,
+				txrules.DefaultRelayFeePerKb) {
+				l := len(outputs)
+				unsignedTransaction.TxOut = append(outputs[:l:l], change)
+				changeIndex = l
+			}
 		}
 
 		return &AuthoredTx{
